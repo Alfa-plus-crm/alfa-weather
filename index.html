@@ -1,218 +1,145 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ALFA WEATHER</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-*{box-sizing:border-box}
-body{
- margin:0;background:#091827;color:#fff;
- font-family:Arial,sans-serif;padding:20px;
- min-height:100vh
-}
-.app{max-width:520px;margin:auto}
-header{display:flex;align-items:center;gap:12px;margin-bottom:25px}
-.logo{
- width:46px;height:46px;border-radius:14px;
- background:#2186c5;display:grid;place-items:center;
- font-size:25px
-}
-h1{font-size:19px;margin:0;letter-spacing:1px}
-.sub{color:#8fa9bf;font-size:12px;margin-top:4px}
-.search{display:flex;gap:8px;margin-bottom:18px}
-input{
- flex:1;min-width:0;background:#172b3e;color:white;
- border:1px solid #29445e;border-radius:12px;
- padding:14px;font-size:15px;outline:none
-}
-button{
- background:#2589c9;color:white;border:0;
- border-radius:12px;padding:0 17px;font-size:14px;
- cursor:pointer
-}
-button:disabled{opacity:.5}
-.card{
- background:linear-gradient(145deg,#1c4262,#142d48);
- border:1px solid #31516d;border-radius:22px;
- padding:24px;margin-bottom:17px
-}
-.center{text-align:center}
-.city{font-size:15px;color:#c1d5e7}
-.temp{font-size:66px;font-weight:700;margin:8px 0}
-.desc{color:#d4e5f3;font-size:15px}
-.icon{font-size:38px;margin:8px}
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}
-.stat-label{font-size:13px;color:#a9c1d5}
-.stat-value{font-size:23px;font-weight:700;margin-top:6px}
-h2{font-size:17px;margin:24px 0 13px}
-.hours{
- display:flex;gap:10px;overflow-x:auto;
- padding-bottom:8px
-}
-.hour{
- flex:0 0 76px;background:#142b40;
- border:1px solid #29435b;border-radius:15px;
- padding:13px 7px;text-align:center
-}
-.hour.rain{border:1px solid #36a5e8;background:#153c59}
-.hour-time{font-size:12px;color:#a9c1d5}
-.hour-icon{font-size:23px;margin:12px 0}
-.hour-temp{font-size:17px;font-weight:700}
-.rainbox{
- background:#142b40;border:1px solid #29435b;
- border-radius:16px;padding:17px;margin-top:16px
-}
-.rain-title{font-weight:700;margin-bottom:10px}
-.rain-result{font-size:17px;font-weight:700}
-.rain-time{color:#9fc9e7;font-size:14px;margin-top:8px}
-.note{font-size:11px;color:#7893a9;text-align:center;margin-top:20px}
-.status{font-size:13px;color:#a9c1d5;margin:12px 2px}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071a35">
+  <title>ALFA WEATHER — макет</title>
+  <style>
+    :root {
+      --bg:#06152c; --bg2:#0a2142; --card:#10294b; --card2:#0d2342;
+      --line:rgba(157,190,230,.13); --text:#f3f7ff; --muted:#91a8c7;
+      --blue:#63b9ff; --cyan:#9ad9ff; --radius:24px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; color:var(--text);
+      font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background:
+        radial-gradient(ellipse at 82% 0%,rgba(39,117,190,.22),transparent 36%),
+        radial-gradient(ellipse at 0% 60%,rgba(24,73,130,.16),transparent 38%),
+        linear-gradient(145deg,#071a35 0%,#06142a 58%,#081b36 100%);
+      padding:28px 16px 42px;
+    }
+    .app{width:min(100%,460px);margin:0 auto}
+    header{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 28px}
+    .brand{display:flex;align-items:center;gap:11px}
+    .logo{width:46px;height:46px;display:grid;place-items:center;filter:drop-shadow(0 6px 14px #020b1b)}
+    .brand-name{font-size:17px;font-weight:800;letter-spacing:1.25px}
+    .brand-sub{font-size:10px;color:var(--muted);letter-spacing:2.1px;margin-top:3px}
+    .location-pill{border:1px solid var(--line);background:rgba(17,43,76,.65);color:#c9d9ee;border-radius:999px;padding:9px 12px;font-size:12px}
+    .location-pill span{color:var(--blue);margin-right:5px}
+    .eyebrow{color:var(--muted);font-size:12px;letter-spacing:1.5px;text-transform:uppercase}
+    .hero{text-align:center;padding:16px 8px 23px}
+    .city{font-size:22px;font-weight:650;margin-top:9px}
+    .date{font-size:12px;color:var(--muted);margin-top:6px}
+    .weather-art{height:116px;display:grid;place-items:center;margin:14px auto 4px}
+    .temperature{font-size:76px;font-weight:300;letter-spacing:-5px;line-height:1}
+    .description{color:#c4d5ec;font-size:15px;margin-top:8px}
+    .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0 24px}
+    .stat{background:linear-gradient(145deg,rgba(20,49,84,.96),rgba(12,34,64,.96));border:1px solid var(--line);border-radius:19px;padding:16px;min-height:91px}
+    .stat-label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
+    .stat-value{font-size:21px;font-weight:650;margin-top:11px}
+    .section-head{display:flex;align-items:center;justify-content:space-between;margin:26px 2px 13px}
+    h2{font-size:16px;margin:0;font-weight:650}
+    .section-note{font-size:11px;color:var(--muted)}
+    .hourly{display:flex;gap:9px;overflow-x:auto;padding:1px 1px 8px;scrollbar-width:none}
+    .hourly::-webkit-scrollbar{display:none}
+    .hour{flex:0 0 66px;text-align:center;padding:13px 6px 12px;background:rgba(15,39,71,.78);border:1px solid var(--line);border-radius:17px}
+    .hour.active{background:linear-gradient(180deg,rgba(36,104,163,.48),rgba(16,43,77,.95));border-color:rgba(99,185,255,.35)}
+    .hour-time{font-size:11px;color:var(--muted)}
+    .hour-icon{font-size:21px;margin:10px 0}
+    .hour-temp{font-size:14px;font-weight:650}
+    .rain-card{display:flex;align-items:center;gap:14px;padding:17px;background:linear-gradient(120deg,rgba(21,63,105,.9),rgba(13,35,65,.96));border:1px solid rgba(99,185,255,.18);border-radius:20px;margin-top:2px}
+    .rain-icon{width:43px;height:43px;border-radius:14px;display:grid;place-items:center;background:rgba(99,185,255,.12);font-size:22px}
+    .rain-title{font-size:14px;font-weight:650}
+    .rain-text{font-size:12px;color:#a9bfdc;margin-top:5px;line-height:1.45}
+    footer{text-align:center;color:#6f89aa;font-size:10px;letter-spacing:1px;margin-top:30px}
+    /* Мягкая анимация интерфейса */
+    @keyframes fadeUp { from {opacity:0; transform:translateY(14px)} to {opacity:1; transform:translateY(0)} }
+    @keyframes cloudFloat { 0%,100% {transform:translateY(0)} 50% {transform:translateY(-7px)} }
+    @keyframes sunPulse { 0%,100% {filter:drop-shadow(0 0 0 rgba(245,201,106,0))} 50% {filter:drop-shadow(0 0 13px rgba(245,201,106,.32))} }
+    @keyframes shimmer { 0% {background-position:0% 50%} 100% {background-position:200% 50%} }
+    header {animation:fadeUp .55s ease both}
+    .hero {animation:fadeUp .7s .08s ease both}
+    .stats {animation:fadeUp .7s .16s ease both}
+    .section-head, .hourly, .rain-card {animation:fadeUp .7s .24s ease both}
+    .weather-art svg {animation:cloudFloat 4.2s ease-in-out infinite}
+    .weather-art svg circle {animation:sunPulse 3.5s ease-in-out infinite}
+    .stat, .hour, .rain-card, .location-pill {
+      transition:transform .22s ease, border-color .22s ease, background-color .22s ease, box-shadow .22s ease;
+    }
+    .stat:hover, .hour:hover, .rain-card:hover {
+      transform:translateY(-4px);
+      border-color:rgba(99,185,255,.42);
+      box-shadow:0 12px 28px rgba(0,0,0,.18);
+    }
+    .location-pill {cursor:pointer}
+    .location-pill:hover {transform:translateY(-2px);border-color:rgba(99,185,255,.48);box-shadow:0 6px 18px rgba(0,0,0,.16)}
+    .hour {cursor:pointer}
+    .hour:active, .location-pill:active {transform:scale(.96)}
+    .logo {transition:transform .28s ease}
+    .logo:hover {transform:translateY(-3px) rotate(-4deg)}
+    .brand-name {background:linear-gradient(90deg,#fff,#a9ddff,#fff);background-size:200% auto;background-clip:text;-webkit-background-clip:text;color:transparent;animation:shimmer 7s linear infinite}
+    @media (prefers-reduced-motion:reduce) {
+      *,*::before,*::after {animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
+    }
+    @media(min-width:600px){body{padding-top:44px}.app{padding:0 8px}}
+  </style>
 </head>
 <body>
-<div class="app">
-<header>
- <div class="logo">☀️</div>
- <div>
-  <h1>ALFA WEATHER</h1>
-  <div class="sub">ПОГОДА В ТВОЁМ ГОРОДЕ</div>
- </div>
-</header>
+  <main class="app">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-label="Логотип ALFA WEATHER">
+          <svg width="46" height="42" viewBox="0 0 64 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="cloud" x1="10" y1="7" x2="52" y2="51" gradientUnits="userSpaceOnUse"><stop stop-color="#DDF3FF"/><stop offset=".48" stop-color="#78C8FF"/><stop offset="1" stop-color="#3289D2"/></linearGradient></defs>
+            <path d="M17.2 44.5C8.9 44.5 4 39.4 4 32.6c0-6.3 4.8-11.2 11.1-11.8C17 11.7 24.2 6 32.8 6c9.2 0 16.5 6.6 17.7 15.4 6.2.7 9.5 5.1 9.5 10.9 0 7.2-5.2 12.2-13 12.2H17.2Z" fill="url(#cloud)" stroke="#C8ECFF" stroke-opacity=".65" stroke-width="1.5"/>
+            <path d="M32 22v12M26 28h12" stroke="#071A35" stroke-width="3.2" stroke-linecap="round"/>
+            
+          </svg>
+        </div>
+        <div><div class="brand-name">ALFA WEATHER</div><div class="brand-sub">ПОГОДА РЯДОМ</div></div>
+      </div>
+      <div class="location-pill"><span>●</span> Москва⌄</div>
+    </header>
 
-<div class="search">
- <input id="cityInput" placeholder="Введите город..." value="Москва">
- <button id="searchBtn" onclick="loadCity()">Найти</button>
-</div>
-<div id="status" class="status">Загружаем погоду...</div>
+    <section class="hero">
+      <div class="eyebrow">СЕЙЧАС В ГОРОДЕ</div>
+      <div class="city">Москва</div>
+      <div class="date">Суббота, 21 ноября</div>
+      <div class="weather-art">
+        <svg width="148" height="112" viewBox="0 0 148 112" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="77" cy="43" r="28" fill="#F5C96A" fill-opacity=".95"/>
+          <path d="M25 77c-9.4 0-15-5.7-15-13.2 0-7 5.5-12.5 12.7-13.2C26.3 39.9 34.8 33 45 33c10.6 0 19 7.5 20.4 17.5 7.1.8 11 5.8 11 12.3 0 8.1-5.9 13.7-14.8 13.7H25Z" fill="#CDEAFF" stroke="#F4FBFF" stroke-opacity=".8" stroke-width="2"/>
+          <path d="M91 85c-7.7 0-12.2-4.7-12.2-10.8 0-5.8 4.5-10.3 10.4-10.9 2.1-8 9.1-13.6 17.5-13.6 8.7 0 15.6 6.1 16.8 14.3 5.8.7 9 4.8 9 10.1 0 6.7-4.8 11.3-12.2 11.3H91Z" fill="#82BFEF" stroke="#DDF3FF" stroke-opacity=".7" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="temperature">+4°</div>
+      <div class="description">Переменная облачность</div>
+    </section>
 
-<section class="card">
- <div class="center">
-  <div class="city" id="city">Москва</div>
-  <div class="temp" id="temp">--°</div>
-  <div class="icon" id="weatherIcon">☁️</div>
-  <div class="desc" id="description">Загрузка...</div>
- </div>
- <div class="stats">
-  <div>
-   <div class="stat-label">💨 Ветер</div>
-   <div class="stat-value" id="wind">-- м/с</div>
-  </div>
-  <div>
-   <div class="stat-label">🌧 Дождь</div>
-   <div class="stat-value" id="rain">--</div>
-  </div>
- </div>
-</section>
+    <section class="stats">
+      <div class="stat"><div class="stat-label">↗ Скорость ветра</div><div class="stat-value">3 м/с</div></div>
+      <div class="stat"><div class="stat-label">☂ Осадки сегодня</div><div class="stat-value">Не ожидаются</div></div>
+    </section>
 
-<h2>Почасовая погода</h2>
-<div class="hours" id="hours"></div>
+    <div class="section-head"><h2>Почасовой прогноз</h2><span class="section-note">Ближайшие часы</span></div>
+    <section class="hourly" aria-label="Почасовой прогноз">
+      <div class="hour"><div class="hour-time">Сейчас</div><div class="hour-icon">🌤</div><div class="hour-temp">+4°</div></div>
+      <div class="hour active"><div class="hour-time">09:00</div><div class="hour-icon">☁️</div><div class="hour-temp">+5°</div></div>
+      <div class="hour"><div class="hour-time">10:00</div><div class="hour-icon">🌤</div><div class="hour-temp">+6°</div></div>
+      <div class="hour"><div class="hour-time">11:00</div><div class="hour-icon">☀️</div><div class="hour-temp">+7°</div></div>
+      <div class="hour"><div class="hour-time">12:00</div><div class="hour-icon">☀️</div><div class="hour-temp">+8°</div></div>
+      <div class="hour"><div class="hour-time">13:00</div><div class="hour-icon">☁️</div><div class="hour-temp">+7°</div></div>
+    </section>
 
-<div class="rainbox">
- <div class="rain-title">🌧 Осадки</div>
- <div class="rain-result" id="rainResult">Проверяем прогноз...</div>
- <div class="rain-time" id="rainTime"></div>
-</div>
-
-<div class="note">
- Данные: Open-Meteo · Прогноз обновляется при запросе
-</div>
-</div>
-
-<script>
-const $ = id => document.getElementById(id);
-
-function weatherInfo(code){
- if(code===0)return ["☀️","Ясно"];
- if(code<=2)return ["🌤️","Переменная облачность"];
- if(code===3)return ["☁️","Пасмурно"];
- if(code<=48)return ["🌫️","Туман"];
- if(code<=67)return ["🌧️","Дождь"];
- if(code<=77)return ["❄️","Снег"];
- if(code<=82)return ["🌦️","Ливень"];
- if(code<=86)return ["🌨️","Снегопад"];
- return ["⛈️","Гроза"];
-}
-
-async function loadCity(){
- const cityName=$("cityInput").value.trim();
- if(!cityName)return;
- $("searchBtn").disabled=true;
- $("status").textContent="Ищем город...";
- try{
-  const geoUrl="https://geocoding-api.open-meteo.com/v1/search?name="+
-   encodeURIComponent(cityName)+"&count=1&language=ru&format=json";
-  const geo=await fetch(geoUrl).then(r=>r.json());
-  if(!geo.results?.length)throw new Error("Город не найден");
-  const place=geo.results[0];
-  $("city").textContent=place.name+(place.country?", "+place.country:"");
-  $("status").textContent="Загружаем прогноз...";
-  const url="https://api.open-meteo.com/v1/forecast?latitude="+
-   place.latitude+"&longitude="+place.longitude+
-   "&current=temperature_2m,weather_code,wind_speed_10m"+
-   "&hourly=temperature_2m,precipitation,weather_code"+
-   "&forecast_days=2&timezone=auto";
-  const data=await fetch(url).then(r=>r.json());
-  showWeather(data);
-  $("status").textContent="Прогноз обновлён";
- }catch(e){
-  $("status").textContent=e.message||"Не удалось загрузить погоду";
- }finally{
-  $("searchBtn").disabled=false;
- }
-}
-
-function showWeather(data){
- const c=data.current;
- const [icon,desc]=weatherInfo(c.weather_code);
- $("temp").textContent=Math.round(c.temperature_2m)+"°";
- $("weatherIcon").textContent=icon;
- $("description").textContent=desc;
- $("wind").textContent=Math.round(c.wind_speed_10m)+" км/ч";
- // API wind_speed_10m is converted below from km/h to m/s
- $("wind").textContent=(c.wind_speed_10m/3.6).toFixed(1)+" м/с";
-
- const times=data.hourly.time;
- const temps=data.hourly.temperature_2m;
- const rain=data.hourly.precipitation;
- const codes=data.hourly.weather_code;
- const now=new Date(c.time).getTime();
- let start=times.findIndex(t=>new Date(t).getTime()>=now);
- if(start<0)start=0;
-
- const hours=$("hours");
- hours.innerHTML="";
- for(let i=start;i<Math.min(start+8,times.length);i++){
-  const [ic]=weatherInfo(codes[i]);
-  const raining=rain[i]>=0.1;
-  const time=times[i].slice(11,16);
-  const item=document.createElement("div");
-  item.className="hour"+(raining?" rain":"");
-  item.innerHTML=
-   '<div class="hour-time">'+time+'</div>'+
-   '<div class="hour-icon">'+(raining?"🌧️":ic)+'</div>'+
-   '<div class="hour-temp">'+Math.round(temps[i])+'°</div>';
-  hours.appendChild(item);
- }
-
- const rainHours=[];
- for(let i=start;i<times.length;i++){
-  if(rain[i]>=0.1)rainHours.push(times[i].slice(11,16));
- }
- if(rainHours.length){
-  $("rain").textContent="Да";
-  $("rainResult").textContent="Сегодня ожидается дождь";
-  $("rainTime").textContent="Ожидается: "+rainHours.slice(0,5).join(", ");
- }else{
-  $("rain").textContent="Нет";
-  $("rainResult").textContent="Дождя не ожидается";
-  $("rainTime").textContent="В прогнозируемые часы осадки не обнаружены";
- }
-}
-
-loadCity();
-</script>
+    <div class="section-head"><h2>Осадки</h2><span class="section-note">На сегодня</span></div>
+    <section class="rain-card">
+      <div class="rain-icon">☂</div>
+      <div><div class="rain-title">Дождь не прогнозируется</div><div class="rain-text">В ближайшие часы осадков не ожидается. Можно планировать дела без зонта.</div></div>
+    </section>
+    <footer>ALFA WEATHER · ДЕМО-ИНТЕРФЕЙС</footer>
+  </main>
 </body>
 </html>
