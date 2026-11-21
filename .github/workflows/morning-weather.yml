@@ -2,11 +2,20 @@
 name: ALFA WEATHER TEST
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Test
-        run: echo "ALFA WEATHER WORKS"
+      - name: Check workflow
+        run: |
+          echo "ALFA WEATHER WORKS"
+          echo "GitHub Actions запускается успешно"
