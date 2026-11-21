@@ -1,0 +1,245 @@
+name: ALFA WEATHER Morning Forecast
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 07:00 Moscow time (UTC+3)
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alfa-weather-morning-forecast
+  cancel-in-progress: false
+
+jobs:
+  send-forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check required secrets
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -e
+          for name in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID SUPABASE_URL SUPABASE_ANON_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub secret: $name"
+              exit 1
+            fi
+          done
+          echo "All required secrets are present."
+
+      - name: Install Python dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Build and send weather forecast
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          python <<'PY'
+          import os
+          import sys
+          import html
+          import requests
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          def fail(message):
+              print(f"::error::{message}")
+              sys.exit(1)
+
+          def safe_text(value):
+              return html.escape(str(value or ""))
+
+          supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
+          supabase_key = os.environ["SUPABASE_ANON_KEY"]
+          bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+
+          headers = {
+              "apikey": supabase_key,
+              "Authorization": f"Bearer {supabase_key}",
+              "Accept": "application/json",
+          }
+
+          try:
+              settings_response = requests.get(
+                  f"{supabase_url}/rest/v1/weather_settings",
+                  headers=headers,
+                  params={
+                      "select": "city,latitude,longitude,timezone",
+                      "id": "eq.1",
+                      "limit": "1",
+                  },
+                  timeout=20,
+              )
+              settings_response.raise_for_status()
+              rows = settings_response.json()
+          except Exception as exc:
+              fail(f"Could not read Supabase weather settings: {exc}")
+
+          if not rows:
+              fail("No row with id=1 found in public.weather_settings.")
+
+          settings = rows[0]
+          city = settings.get("city") or "Ваш город"
+          latitude = settings.get("latitude")
+          longitude = settings.get("longitude")
+          timezone = settings.get("timezone") or "Europe/Moscow"
+
+          if latitude is None or longitude is None:
+              fail("Latitude or longitude is missing in weather_settings.")
+
+          try:
+              ZoneInfo(timezone)
+          except Exception:
+              print(f"Invalid timezone {timezone}; using Europe/Moscow.")
+              timezone = "Europe/Moscow"
+
+          weather_url = "https://api.open-meteo.com/v1/forecast"
+          weather_params = {
+              "latitude": latitude,
+              "longitude": longitude,
+              "current": (
+                  "temperature_2m,apparent_temperature,relative_humidity_2m,"
+                  "precipitation,weather_code,wind_speed_10m"
+              ),
+              "daily": (
+                  "weather_code,temperature_2m_max,temperature_2m_min,"
+                  "precipitation_probability_max"
+              ),
+              "forecast_days": 1,
+              "timezone": timezone,
+          }
+
+          try:
+              weather_response = requests.get(
+                  weather_url, params=weather_params, timeout=20
+              )
+              weather_response.raise_for_status()
+              weather = weather_response.json()
+          except Exception as exc:
+              fail(f"Could not fetch Open-Meteo forecast: {exc}")
+
+          current = weather.get("current", {})
+          daily = weather.get("daily", {})
+
+          def number(value, suffix=""):
+              if value is None:
+                  return "—"
+              try:
+                  return f"{round(float(value))}{suffix}"
+              except (TypeError, ValueError):
+                  return "—"
+
+          descriptions = {
+              0: "Ясно",
+              1: "Преимущественно ясно",
+              2: "Переменная облачность",
+              3: "Пасмурно",
+              45: "Туман",
+              48: "Изморозь",
+              51: "Лёгкая морось",
+              53: "Морось",
+              55: "Сильная морось",
+              56: "Ледяная морось",
+              57: "Сильная ледяная морось",
+              61: "Небольшой дождь",
+              63: "Дождь",
+              65: "Сильный дождь",
+              66: "Ледяной дождь",
+              67: "Сильный ледяной дождь",
+              71: "Небольшой снег",
+              73: "Снег",
+              75: "Сильный снег",
+              77: "Снежные зёрна",
+              80: "Кратковременный дождь",
+              81: "Ливень",
+              82: "Сильный ливень",
+              85: "Снегопад",
+              86: "Сильный снегопад",
+              95: "Гроза",
+              96: "Гроза с небольшим градом",
+              99: "Гроза с сильным градом",
+          }
+
+          code = current.get("weather_code")
+          description = descriptions.get(code, "Погодные условия")
+          temperature = number(current.get("temperature_2m"), "°C")
+          feels_like = number(current.get("apparent_temperature"), "°C")
+          humidity = number(current.get("relative_humidity_2m"), "%")
+          wind = number(current.get("wind_speed_10m"), " км/ч")
+          rain = number(current.get("precipitation"), " мм")
+
+          high = "—"
+          low = "—"
+          rain_chance = "—"
+          if daily.get("temperature_2m_max"):
+              high = number(daily["temperature_2m_max"][0], "°C")
+          if daily.get("temperature_2m_min"):
+              low = number(daily["temperature_2m_min"][0], "°C")
+          if daily.get("precipitation_probability_max"):
+              rain_chance = number(
+                  daily["precipitation_probability_max"][0], "%"
+              )
+
+          now = datetime.now(ZoneInfo(timezone))
+          date_label = now.strftime("%d.%m.%Y")
+          weekday = now.strftime("%A")
+          weekday_ru = {
+              "Monday": "Понедельник",
+              "Tuesday": "Вторник",
+              "Wednesday": "Среда",
+              "Thursday": "Четверг",
+              "Friday": "Пятница",
+              "Saturday": "Суббота",
+              "Sunday": "Воскресенье",
+          }.get(weekday, weekday)
+
+          message = (
+              "☁️ <b>ALFA WEATHER</b>\n"
+              f"📍 <b>{safe_text(city)}</b>\n"
+              f"📅 {weekday_ru}, {date_label}\n\n"
+              f"🌡 Сейчас: <b>{temperature}</b>\n"
+              f"🤔 Ощущается как: {feels_like}\n"
+              f"🌤 {safe_text(description)}\n\n"
+              f"⬆️ Максимум: {high}\n"
+              f"⬇️ Минимум: {low}\n"
+              f"🌧 Вероятность осадков: {rain_chance}\n"
+              f"💧 Влажность: {humidity}\n"
+              f"💨 Ветер: {wind}\n"
+              f"🌧 Осадки сейчас: {rain}\n\n"
+              "<i>Хорошего дня! Прогноз: Open-Meteo</i>"
+          )
+
+          telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+          try:
+              telegram_response = requests.post(
+                  telegram_url,
+                  json={
+                      "chat_id": chat_id,
+                      "text": message,
+                      "parse_mode": "HTML",
+                      "disable_web_page_preview": True,
+                  },
+                  timeout=20,
+              )
+              telegram_response.raise_for_status()
+              result = telegram_response.json()
+          except Exception as exc:
+              fail(f"Telegram request failed: {exc}")
+
+          if not result.get("ok"):
+              fail(f"Telegram API returned an error: {result}")
+
+          print("Прогноз успешно отправлен в Telegram.")
+          print(f"Город: {city}")
+          PY
