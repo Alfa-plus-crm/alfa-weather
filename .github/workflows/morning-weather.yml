@@ -48,6 +48,7 @@ jobs:
           import os
           import sys
           import html
+          import time
           import requests
           from datetime import datetime
           from zoneinfo import ZoneInfo
@@ -59,10 +60,25 @@ jobs:
           def safe_text(value):
               return html.escape(str(value or ""))
 
-          # Accept either the project root URL or a Data API URL ending in /rest/v1.
+          def get_with_retries(url, *, params=None, headers=None, timeout=(15, 60), label="request"):
+              last_error = None
+              for attempt in range(1, 4):
+                  try:
+                      response = requests.get(
+                          url, params=params, headers=headers, timeout=timeout
+                      )
+                      response.raise_for_status()
+                      return response
+                  except requests.RequestException as exc:
+                      last_error = exc
+                      print(f"{label}: attempt {attempt}/3 failed: {exc}")
+                      if attempt < 3:
+                          time.sleep(attempt * 3)
+              raise RuntimeError(f"{label} failed after 3 attempts: {last_error}")
+
           supabase_url = os.environ["SUPABASE_URL"].strip().rstrip("/")
           if supabase_url.endswith("/rest/v1"):
-              supabase_url = supabase_url[:-len("/rest/v1")]
+              supabase_url = supabase_url[:-8]
           supabase_key = os.environ["SUPABASE_ANON_KEY"]
           bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
@@ -74,39 +90,24 @@ jobs:
               "Accept-Profile": "public",
           }
 
-          # This table has only: id, city, updated_at, timezone.
           try:
-              settings_response = requests.get(
+              settings_response = get_with_retries(
                   f"{supabase_url}/rest/v1/weather_settings",
                   headers=headers,
-                  params={
-                      "select": "city,timezone",
-                      "id": "eq.1",
-                      "limit": "1",
-                  },
-                  timeout=20,
+                  params={"select": "city,timezone", "id": "eq.1", "limit": "1"},
+                  timeout=(15, 30),
+                  label="Supabase settings request",
               )
-              if not settings_response.ok:
-                  body = settings_response.text[:700].replace("\n", " ")
-                  fail(
-                      "Supabase settings request failed "
-                      f"(HTTP {settings_response.status_code}). "
-                      f"Response: {body}. Check that SUPABASE_URL is the project "
-                      "root URL (not a dashboard URL), and that public.weather_settings "
-                      "is exposed in the Data API."
-                  )
               rows = settings_response.json()
-          except requests.RequestException as exc:
-              fail(f"Could not connect to Supabase: {exc}")
-          except ValueError:
-              fail("Supabase returned a response that was not valid JSON.")
+          except Exception as exc:
+              fail(f"Could not read Supabase weather settings: {exc}")
 
           if not rows:
               fail("No row with id=1 found in public.weather_settings.")
 
           settings = rows[0]
-          city = (settings.get("city") or "Москва").strip()
-          timezone = (settings.get("timezone") or "Europe/Moscow").strip()
+          city = settings.get("city") or "Москва"
+          timezone = settings.get("timezone") or "Europe/Moscow"
 
           try:
               ZoneInfo(timezone)
@@ -114,28 +115,25 @@ jobs:
               print(f"Invalid timezone {timezone}; using Europe/Moscow.")
               timezone = "Europe/Moscow"
 
-          # Resolve city coordinates automatically; no latitude/longitude columns needed.
+          # Find coordinates from the city name. Retry transient network timeouts.
           try:
-              geo_response = requests.get(
+              geocode_response = get_with_retries(
                   "https://geocoding-api.open-meteo.com/v1/search",
-                  params={
-                      "name": city,
-                      "count": 1,
-                      "language": "ru",
-                      "format": "json",
-                  },
-                  timeout=20,
+                  params={"name": city, "count": 1, "language": "ru", "format": "json"},
+                  timeout=(15, 60),
+                  label="Open-Meteo geocoding",
               )
-              geo_response.raise_for_status()
-              geo_results = geo_response.json().get("results") or []
+              geocode = geocode_response.json()
           except Exception as exc:
               fail(f"Could not find coordinates for city '{city}': {exc}")
 
-          if not geo_results:
-              fail(f"City '{city}' was not found by Open-Meteo geocoding.")
+          places = geocode.get("results") or []
+          if not places:
+              fail(f"Open-Meteo could not find city: {city}")
 
-          latitude = geo_results[0]["latitude"]
-          longitude = geo_results[0]["longitude"]
+          latitude = places[0]["latitude"]
+          longitude = places[0]["longitude"]
+          resolved_city = places[0].get("name") or city
 
           weather_params = {
               "latitude": latitude,
@@ -153,12 +151,12 @@ jobs:
           }
 
           try:
-              weather_response = requests.get(
+              weather_response = get_with_retries(
                   "https://api.open-meteo.com/v1/forecast",
                   params=weather_params,
-                  timeout=20,
+                  timeout=(15, 60),
+                  label="Open-Meteo forecast",
               )
-              weather_response.raise_for_status()
               weather = weather_response.json()
           except Exception as exc:
               fail(f"Could not fetch Open-Meteo forecast: {exc}")
@@ -212,11 +210,16 @@ jobs:
           humidity = number(current.get("relative_humidity_2m"), "%")
           wind = number(current.get("wind_speed_10m"), " км/ч")
           rain = number(current.get("precipitation"), " мм")
-          high = number((daily.get("temperature_2m_max") or [None])[0], "°C")
-          low = number((daily.get("temperature_2m_min") or [None])[0], "°C")
-          rain_chance = number(
-              (daily.get("precipitation_probability_max") or [None])[0], "%"
-          )
+
+          high = "—"
+          low = "—"
+          rain_chance = "—"
+          if daily.get("temperature_2m_max"):
+              high = number(daily["temperature_2m_max"][0], "°C")
+          if daily.get("temperature_2m_min"):
+              low = number(daily["temperature_2m_min"][0], "°C")
+          if daily.get("precipitation_probability_max"):
+              rain_chance = number(daily["precipitation_probability_max"][0], "%")
 
           now = datetime.now(ZoneInfo(timezone))
           date_label = now.strftime("%d.%m.%Y")
@@ -232,7 +235,7 @@ jobs:
 
           message = (
               "☁️ <b>ALFA WEATHER</b>\n"
-              f"📍 <b>{safe_text(city)}</b>\n"
+              f"📍 <b>{safe_text(resolved_city)}</b>\n"
               f"📅 {weekday_ru}, {date_label}\n\n"
               f"🌡 Сейчас: <b>{temperature}</b>\n"
               f"🤔 Ощущается как: {feels_like}\n"
@@ -246,25 +249,26 @@ jobs:
               "<i>Хорошего дня! Прогноз: Open-Meteo</i>"
           )
 
+          telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
           try:
               telegram_response = requests.post(
-                  f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                  telegram_url,
                   json={
                       "chat_id": chat_id,
                       "text": message,
                       "parse_mode": "HTML",
                       "disable_web_page_preview": True,
                   },
-                  timeout=20,
+                  timeout=(15, 45),
               )
               telegram_response.raise_for_status()
-              telegram_result = telegram_response.json()
+              result = telegram_response.json()
           except Exception as exc:
               fail(f"Telegram request failed: {exc}")
 
-          if not telegram_result.get("ok"):
-              fail(f"Telegram API returned an error: {telegram_result}")
+          if not result.get("ok"):
+              fail(f"Telegram API returned an error: {result}")
 
           print("Прогноз успешно отправлен в Telegram.")
-          print(f"Город: {city}")
+          print(f"Город: {resolved_city}")
           PY
