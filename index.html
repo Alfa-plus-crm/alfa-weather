@@ -169,6 +169,70 @@
     wind:$('wind'), rainSummary:$('rainSummary'), hourly:$('hourly'), daily:$('daily'),
     rainIcon:$('rainIcon'), rainTitle:$('rainTitle'), rainText:$('rainText'), status:$('status')
   };
+  // Supabase: вставьте сюда Project URL и Publishable key из настроек проекта.
+  // Publishable key предназначен для использования в браузере; доступ ограничивается RLS-политиками.
+  const SUPABASE_URL = 'ВСТАВЬТЕ_SUPABASE_PROJECT_URL';
+  const SUPABASE_ANON_KEY = 'ВСТАВЬТЕ_SUPABASE_PUBLISHABLE_KEY';
+  const supabaseReady = () => SUPABASE_URL.startsWith('https://') &&
+    !SUPABASE_ANON_KEY.startsWith('ВСТАВЬТЕ_');
+
+  async function saveCityToSupabase(city) {
+    if (!supabaseReady()) return;
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/weather_settings?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify({
+          id: 1,
+          city: city.name,
+          admin1: city.admin1 || '',
+          country: city.country || '',
+          latitude: city.latitude,
+          longitude: city.longitude,
+          timezone: city.timezone || 'auto',
+          updated_at: new Date().toISOString()
+        })
+      });
+      if (!response.ok) throw new Error(`Supabase: ${response.status}`);
+    } catch (error) {
+      console.warn('Не удалось сохранить город в Supabase:', error);
+    }
+  }
+
+  async function loadCityFromSupabase() {
+    if (!supabaseReady()) return null;
+    try {
+      const url = `${SUPABASE_URL}/rest/v1/weather_settings?id=eq.1&select=city,admin1,country,latitude,longitude,timezone`;
+      const response = await fetch(url, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+      if (!response.ok) throw new Error(`Supabase: ${response.status}`);
+      const rows = await response.json();
+      const row = rows && rows[0];
+      if (!row || !row.city || !Number.isFinite(Number(row.latitude)) ||
+          !Number.isFinite(Number(row.longitude))) return null;
+      return {
+        name: row.city,
+        admin1: row.admin1 || '',
+        country: row.country || '',
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        timezone: row.timezone || 'auto'
+      };
+    } catch (error) {
+      console.warn('Не удалось загрузить город из Supabase:', error);
+      return null;
+    }
+  }
+
   let selectedCity = {name:'Москва', admin1:'Москва', country:'Россия', latitude:55.7558, longitude:37.6173, timezone:'Europe/Moscow'};
   let requestNumber = 0;
 
@@ -242,6 +306,7 @@
       try {
         localStorage.setItem('alfaWeatherCity', JSON.stringify(city));
       } catch (_) {}
+      saveCityToSupabase(city);
     } catch (error) {
       if (myRequest !== requestNumber) return;
       els.dateText.textContent = 'Не удалось обновить данные';
@@ -390,11 +455,21 @@
     if (e.key === 'Escape') closeCityModal();
   });
 
-  try {
-    const saved = JSON.parse(localStorage.getItem('alfaWeatherCity') || 'null');
-    if (saved && saved.name && Number.isFinite(saved.latitude) && Number.isFinite(saved.longitude)) selectedCity = saved;
-  } catch (_) {}
-  loadCity(selectedCity);
+  async function initializeWeather() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('alfaWeatherCity') || 'null');
+      if (saved && saved.name && Number.isFinite(saved.latitude) && Number.isFinite(saved.longitude)) {
+        selectedCity = saved;
+      }
+    } catch (_) {}
+
+    // Облачный город имеет приоритет над локальным, чтобы рассылка и сайт
+    // использовали один и тот же последний выбранный город.
+    const cloudCity = await loadCityFromSupabase();
+    if (cloudCity) selectedCity = cloudCity;
+    loadCity(selectedCity);
+  }
+  initializeWeather();
 
   // Обновляем прогноз каждые 15 минут для выбранного города.
   setInterval(() => loadCity(selectedCity), 15 * 60 * 1000);
