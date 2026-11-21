@@ -1,21 +1,164 @@
 
-name: ALFA WEATHER TEST
+name: ALFA WEATHER Morning Forecast
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
-
-permissions:
-  contents: read
+  schedule:
+    - cron: "0 4 * * *"
 
 jobs:
-  test:
+  send-weather:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check workflow
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Get weather and send Telegram message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
         run: |
-          echo "ALFA WEATHER WORKS"
-          echo "GitHub Actions запускается успешно"
+          python - <<'PY'
+          import os
+          import requests
+          from html import escape
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          url = os.environ["SUPABASE_URL"].rstrip("/")
+          key = os.environ["SUPABASE_ANON_KEY"]
+
+          headers = {
+              "apikey": key,
+              "Authorization": f"Bearer {key}"
+          }
+
+          response = requests.get(
+              f"{url}/rest/v1/weather_settings",
+              params={
+                  "id": "eq.1",
+                  "select": "city,latitude,longitude,timezone"
+              },
+              headers=headers,
+              timeout=30
+          )
+          response.raise_for_status()
+          rows = response.json()
+
+          if not rows:
+              raise Exception("Настройки города не найдены в Supabase")
+
+          settings = rows[0]
+          city = settings["city"]
+          lat = settings["latitude"]
+          lon = settings["longitude"]
+          timezone = settings.get("timezone") or "Europe/Moscow"
+
+          if lat is None or lon is None:
+              raise Exception("Нет координат города в Supabase")
+
+          response = requests.get(
+              "https://api.open-meteo.com/v1/forecast",
+              params={
+                  "latitude": lat,
+                  "longitude": lon,
+                  "current": (
+                      "temperature_2m,apparent_temperature,"
+                      "relative_humidity_2m,wind_speed_10m,"
+                      "precipitation,weather_code"
+                  ),
+                  "daily": (
+                      "weather_code,temperature_2m_max,"
+                      "temperature_2m_min,precipitation_probability_max"
+                  ),
+                  "timezone": timezone,
+                  "forecast_days": 1
+              },
+              timeout=30
+          )
+          response.raise_for_status()
+          data = response.json()
+
+          descriptions = {
+              0: "Ясно",
+              1: "Преимущественно ясно",
+              2: "Переменная облачность",
+              3: "Пасмурно",
+              45: "Туман",
+              48: "Туман",
+              51: "Морось",
+              53: "Морось",
+              55: "Сильная морось",
+              61: "Небольшой дождь",
+              63: "Дождь",
+              65: "Сильный дождь",
+              71: "Небольшой снег",
+              73: "Снег",
+              75: "Сильный снег",
+              80: "Ливень",
+              81: "Сильный ливень",
+              82: "Очень сильный ливень",
+              95: "Гроза",
+              96: "Гроза с градом",
+              99: "Сильная гроза"
+          }
+
+          current = data["current"]
+          daily = data["daily"]
+
+          temp = round(current["temperature_2m"])
+          feels = round(current["apparent_temperature"])
+          humidity = current["relative_humidity_2m"]
+          wind = round(current["wind_speed_10m"])
+          precipitation = current["precipitation"]
+
+          maximum = round(daily["temperature_2m_max"][0])
+          minimum = round(daily["temperature_2m_min"][0])
+          rain = daily["precipitation_probability_max"][0]
+
+          description = descriptions.get(
+              current["weather_code"], "Переменная погода"
+          )
+          daily_description = descriptions.get(
+              daily["weather_code"][0], "Переменная погода"
+          )
+
+          message = (
+              "☁️ <b>ALFA WEATHER</b>\n"
+              "━━━━━━━━━━━━━━\n"
+              f"📍 <b>{escape(city)}</b>\n\n"
+              f"🌤 {description}\n"
+              f"🌡 Температура: <b>{temp:+}°C</b>\n"
+              f"🤔 Ощущается как: {feels:+}°C\n\n"
+              "📅 <b>Прогноз на сегодня</b>\n"
+              f"• {daily_description}\n"
+              f"• От {minimum:+}°C до {maximum:+}°C\n"
+              f"• Вероятность осадков: {rain}%\n\n"
+              "💨 <b>Сейчас</b>\n"
+              f"• Ветер: {wind} км/ч\n"
+              f"• Влажность: {humidity}%\n"
+              f"• Осадки: {precipitation} мм\n"
+              "━━━━━━━━━━━━━━\n"
+              "Хорошего дня! 💙"
+          )
+
+          response = requests.post(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              json={
+                  "chat_id": chat_id,
+                  "text": message,
+                  "parse_mode": "HTML"
+              },
+              timeout=30
+          )
+          response.raise_for_status()
+
+          if not response.json().get("ok"):
+              raise Exception("Telegram не подтвердил отправку")
+
+          print("Прогноз успешно отправлен!")
+          PY
