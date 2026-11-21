@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "0 4 * * *"
 
+permissions:
+  contents: read
+
 jobs:
   send-weather:
     runs-on: ubuntu-latest
@@ -20,7 +23,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-
         run: |
           python - <<'PY'
           import os
@@ -37,7 +39,7 @@ jobs:
               "Authorization": f"Bearer {key}"
           }
 
-          response = requests.get(
+          r = requests.get(
               f"{url}/rest/v1/weather_settings",
               params={
                   "id": "eq.1",
@@ -46,11 +48,11 @@ jobs:
               headers=headers,
               timeout=30
           )
-          response.raise_for_status()
-          rows = response.json()
+          r.raise_for_status()
+          rows = r.json()
 
           if not rows:
-              raise Exception("Настройки города не найдены в Supabase")
+              raise Exception("Город не найден в Supabase")
 
           settings = rows[0]
           city = settings["city"]
@@ -59,29 +61,22 @@ jobs:
           timezone = settings.get("timezone") or "Europe/Moscow"
 
           if lat is None or lon is None:
-              raise Exception("Нет координат города в Supabase")
+              raise Exception("В Supabase отсутствуют координаты города")
 
-          response = requests.get(
+          r = requests.get(
               "https://api.open-meteo.com/v1/forecast",
               params={
                   "latitude": lat,
                   "longitude": lon,
-                  "current": (
-                      "temperature_2m,apparent_temperature,"
-                      "relative_humidity_2m,wind_speed_10m,"
-                      "precipitation,weather_code"
-                  ),
-                  "daily": (
-                      "weather_code,temperature_2m_max,"
-                      "temperature_2m_min,precipitation_probability_max"
-                  ),
+                  "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,precipitation,weather_code",
+                  "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
                   "timezone": timezone,
                   "forecast_days": 1
               },
               timeout=30
           )
-          response.raise_for_status()
-          data = response.json()
+          r.raise_for_status()
+          data = r.json()
 
           descriptions = {
               0: "Ясно",
@@ -146,7 +141,7 @@ jobs:
               "Хорошего дня! 💙"
           )
 
-          response = requests.post(
+          r = requests.post(
               f"https://api.telegram.org/bot{token}/sendMessage",
               json={
                   "chat_id": chat_id,
@@ -155,9 +150,9 @@ jobs:
               },
               timeout=30
           )
-          response.raise_for_status()
+          r.raise_for_status()
 
-          if not response.json().get("ok"):
+          if not r.json().get("ok"):
               raise Exception("Telegram не подтвердил отправку")
 
           print("Прогноз успешно отправлен!")
