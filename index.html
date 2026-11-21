@@ -41,6 +41,15 @@
     .hour-icon{font-size:22px;margin:10px 0}
     .hour-temp{font-size:14px;font-weight:650}
     .hour-rain{font-size:9px;color:#9ad9ff;margin-top:6px;min-height:11px}
+    .daily{display:grid;gap:8px}
+    .day{display:grid;grid-template-columns:1.1fr 38px 1fr auto;align-items:center;gap:10px;padding:12px 14px;background:rgba(15,39,71,.78);border:1px solid var(--line);border-radius:15px}
+    .day-name{font-size:12px;font-weight:650;text-transform:capitalize}
+    .day-date{font-size:10px;color:var(--muted);margin-top:3px}
+    .day-icon{font-size:22px;text-align:center}
+    .day-desc{font-size:10px;color:var(--muted);margin-top:3px}
+    .day-temps{font-size:13px;font-weight:650;white-space:nowrap}
+    .day-temps span{color:var(--muted);font-weight:500;margin-left:5px}
+    .day-rain{font-size:10px;color:#9ad9ff;text-align:right;white-space:nowrap;margin-top:3px}
     .rain-card{display:flex;align-items:center;gap:14px;padding:17px;background:linear-gradient(120deg,rgba(21,63,105,.9),rgba(13,35,65,.96));border:1px solid rgba(99,185,255,.18);border-radius:20px;margin-top:2px}
     .rain-icon{width:43px;height:43px;border-radius:14px;display:grid;place-items:center;background:rgba(99,185,255,.12);font-size:22px;flex:none}
     .rain-title{font-size:14px;font-weight:650}
@@ -111,6 +120,9 @@
     <div class="empty">Загружаем прогноз…</div>
   </section>
 
+  <div class="section-head"><h2>Прогноз на 7 дней</h2><span class="section-note">На неделю</span></div>
+  <section class="daily" id="daily" aria-label="Прогноз погоды на 7 дней"><div class="empty">Загружаем прогноз на неделю…</div></section>
+
   <div class="section-head"><h2>Осадки</h2><span class="section-note">На сегодня</span></div>
   <section class="rain-card">
     <div class="rain-icon" id="rainIcon">☂</div>
@@ -154,7 +166,7 @@
   const els = {
     locationName:$('locationName'), cityName:$('cityName'), dateText:$('dateText'),
     weatherIcon:$('weatherIcon'), temperature:$('temperature'), description:$('description'),
-    wind:$('wind'), rainSummary:$('rainSummary'), hourly:$('hourly'),
+    wind:$('wind'), rainSummary:$('rainSummary'), hourly:$('hourly'), daily:$('daily'),
     rainIcon:$('rainIcon'), rainTitle:$('rainTitle'), rainText:$('rainText'), status:$('status')
   };
   let selectedCity = {name:'Москва', admin1:'Москва', country:'Россия', latitude:55.7558, longitude:37.6173, timezone:'Europe/Moscow'};
@@ -203,7 +215,8 @@
       longitude: city.longitude,
       current: 'temperature_2m,weather_code,wind_speed_10m',
       hourly: 'temperature_2m,precipitation,weather_code',
-      forecast_days: '2',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+      forecast_days: '7',
       timezone: city.timezone || 'auto',
       wind_speed_unit: 'ms'
     }).toString();
@@ -223,6 +236,7 @@
       els.dateText.textContent = formatDate(data.current.time);
 
       renderHourly(data);
+      renderDaily(data);
       renderRain(data);
       setStatus(`Обновлено: ${fmtTime(data.current.time)}`);
       try {
@@ -233,6 +247,7 @@
       els.dateText.textContent = 'Не удалось обновить данные';
       els.description.textContent = 'Проверьте подключение к интернету';
       els.hourly.innerHTML = '<div class="empty">Не удалось загрузить прогноз. Попробуйте ещё раз.</div>';
+      els.daily.innerHTML = '<div class="empty">Прогноз на неделю временно недоступен.</div>'; 
       els.rainSummary.textContent = 'Нет данных';
       els.rainTitle.textContent = 'Прогноз временно недоступен';
       els.rainText.textContent = 'Не удалось получить информацию об осадках. Повторите попытку позже.';
@@ -259,6 +274,28 @@
       </div>`);
     }
     els.hourly.innerHTML = cards.join('');
+  }
+
+  function renderDaily(data) {
+    const daily = data.daily;
+    if (!daily || !Array.isArray(daily.time)) {
+      els.daily.innerHTML = '<div class="empty">Прогноз на неделю недоступен.</div>';
+      return;
+    }
+    const today = data.current.time.slice(0,10);
+    els.daily.innerHTML = daily.time.map((date, i) => {
+      const [icon, condition] = weatherInfo(daily.weather_code[i]);
+      const dayLabel = date === today ? 'Сегодня' : new Intl.DateTimeFormat('ru-RU', {weekday:'short'}).format(new Date(date + 'T12:00:00'));
+      const dateLabel = new Intl.DateTimeFormat('ru-RU', {day:'numeric', month:'short'}).format(new Date(date + 'T12:00:00'));
+      const probability = daily.precipitation_probability_max?.[i];
+      const rain = Number.isFinite(probability) && probability > 0 ? `☂ ${Math.round(probability)}%` : '';
+      return `<div class="day">
+        <div><div class="day-name">${dayLabel}</div><div class="day-date">${dateLabel}</div></div>
+        <div class="day-icon" aria-label="${condition}">${icon}</div>
+        <div><div class="day-temps">${fmtTemp(daily.temperature_2m_max[i])}<span>${fmtTemp(daily.temperature_2m_min[i])}</span></div><div class="day-desc">${condition}</div></div>
+        <div class="day-rain">${rain}</div>
+      </div>`;
+    }).join('');
   }
 
   function renderRain(data) {
