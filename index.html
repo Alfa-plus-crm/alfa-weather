@@ -1,0 +1,218 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALFA WEATHER</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#091827;color:#fff;
+ font-family:Arial,sans-serif;padding:20px;
+ min-height:100vh
+}
+.app{max-width:520px;margin:auto}
+header{display:flex;align-items:center;gap:12px;margin-bottom:25px}
+.logo{
+ width:46px;height:46px;border-radius:14px;
+ background:#2186c5;display:grid;place-items:center;
+ font-size:25px
+}
+h1{font-size:19px;margin:0;letter-spacing:1px}
+.sub{color:#8fa9bf;font-size:12px;margin-top:4px}
+.search{display:flex;gap:8px;margin-bottom:18px}
+input{
+ flex:1;min-width:0;background:#172b3e;color:white;
+ border:1px solid #29445e;border-radius:12px;
+ padding:14px;font-size:15px;outline:none
+}
+button{
+ background:#2589c9;color:white;border:0;
+ border-radius:12px;padding:0 17px;font-size:14px;
+ cursor:pointer
+}
+button:disabled{opacity:.5}
+.card{
+ background:linear-gradient(145deg,#1c4262,#142d48);
+ border:1px solid #31516d;border-radius:22px;
+ padding:24px;margin-bottom:17px
+}
+.center{text-align:center}
+.city{font-size:15px;color:#c1d5e7}
+.temp{font-size:66px;font-weight:700;margin:8px 0}
+.desc{color:#d4e5f3;font-size:15px}
+.icon{font-size:38px;margin:8px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}
+.stat-label{font-size:13px;color:#a9c1d5}
+.stat-value{font-size:23px;font-weight:700;margin-top:6px}
+h2{font-size:17px;margin:24px 0 13px}
+.hours{
+ display:flex;gap:10px;overflow-x:auto;
+ padding-bottom:8px
+}
+.hour{
+ flex:0 0 76px;background:#142b40;
+ border:1px solid #29435b;border-radius:15px;
+ padding:13px 7px;text-align:center
+}
+.hour.rain{border:1px solid #36a5e8;background:#153c59}
+.hour-time{font-size:12px;color:#a9c1d5}
+.hour-icon{font-size:23px;margin:12px 0}
+.hour-temp{font-size:17px;font-weight:700}
+.rainbox{
+ background:#142b40;border:1px solid #29435b;
+ border-radius:16px;padding:17px;margin-top:16px
+}
+.rain-title{font-weight:700;margin-bottom:10px}
+.rain-result{font-size:17px;font-weight:700}
+.rain-time{color:#9fc9e7;font-size:14px;margin-top:8px}
+.note{font-size:11px;color:#7893a9;text-align:center;margin-top:20px}
+.status{font-size:13px;color:#a9c1d5;margin:12px 2px}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+ <div class="logo">☀️</div>
+ <div>
+  <h1>ALFA WEATHER</h1>
+  <div class="sub">ПОГОДА В ТВОЁМ ГОРОДЕ</div>
+ </div>
+</header>
+
+<div class="search">
+ <input id="cityInput" placeholder="Введите город..." value="Москва">
+ <button id="searchBtn" onclick="loadCity()">Найти</button>
+</div>
+<div id="status" class="status">Загружаем погоду...</div>
+
+<section class="card">
+ <div class="center">
+  <div class="city" id="city">Москва</div>
+  <div class="temp" id="temp">--°</div>
+  <div class="icon" id="weatherIcon">☁️</div>
+  <div class="desc" id="description">Загрузка...</div>
+ </div>
+ <div class="stats">
+  <div>
+   <div class="stat-label">💨 Ветер</div>
+   <div class="stat-value" id="wind">-- м/с</div>
+  </div>
+  <div>
+   <div class="stat-label">🌧 Дождь</div>
+   <div class="stat-value" id="rain">--</div>
+  </div>
+ </div>
+</section>
+
+<h2>Почасовая погода</h2>
+<div class="hours" id="hours"></div>
+
+<div class="rainbox">
+ <div class="rain-title">🌧 Осадки</div>
+ <div class="rain-result" id="rainResult">Проверяем прогноз...</div>
+ <div class="rain-time" id="rainTime"></div>
+</div>
+
+<div class="note">
+ Данные: Open-Meteo · Прогноз обновляется при запросе
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function weatherInfo(code){
+ if(code===0)return ["☀️","Ясно"];
+ if(code<=2)return ["🌤️","Переменная облачность"];
+ if(code===3)return ["☁️","Пасмурно"];
+ if(code<=48)return ["🌫️","Туман"];
+ if(code<=67)return ["🌧️","Дождь"];
+ if(code<=77)return ["❄️","Снег"];
+ if(code<=82)return ["🌦️","Ливень"];
+ if(code<=86)return ["🌨️","Снегопад"];
+ return ["⛈️","Гроза"];
+}
+
+async function loadCity(){
+ const cityName=$("cityInput").value.trim();
+ if(!cityName)return;
+ $("searchBtn").disabled=true;
+ $("status").textContent="Ищем город...";
+ try{
+  const geoUrl="https://geocoding-api.open-meteo.com/v1/search?name="+
+   encodeURIComponent(cityName)+"&count=1&language=ru&format=json";
+  const geo=await fetch(geoUrl).then(r=>r.json());
+  if(!geo.results?.length)throw new Error("Город не найден");
+  const place=geo.results[0];
+  $("city").textContent=place.name+(place.country?", "+place.country:"");
+  $("status").textContent="Загружаем прогноз...";
+  const url="https://api.open-meteo.com/v1/forecast?latitude="+
+   place.latitude+"&longitude="+place.longitude+
+   "&current=temperature_2m,weather_code,wind_speed_10m"+
+   "&hourly=temperature_2m,precipitation,weather_code"+
+   "&forecast_days=2&timezone=auto";
+  const data=await fetch(url).then(r=>r.json());
+  showWeather(data);
+  $("status").textContent="Прогноз обновлён";
+ }catch(e){
+  $("status").textContent=e.message||"Не удалось загрузить погоду";
+ }finally{
+  $("searchBtn").disabled=false;
+ }
+}
+
+function showWeather(data){
+ const c=data.current;
+ const [icon,desc]=weatherInfo(c.weather_code);
+ $("temp").textContent=Math.round(c.temperature_2m)+"°";
+ $("weatherIcon").textContent=icon;
+ $("description").textContent=desc;
+ $("wind").textContent=Math.round(c.wind_speed_10m)+" км/ч";
+ // API wind_speed_10m is converted below from km/h to m/s
+ $("wind").textContent=(c.wind_speed_10m/3.6).toFixed(1)+" м/с";
+
+ const times=data.hourly.time;
+ const temps=data.hourly.temperature_2m;
+ const rain=data.hourly.precipitation;
+ const codes=data.hourly.weather_code;
+ const now=new Date(c.time).getTime();
+ let start=times.findIndex(t=>new Date(t).getTime()>=now);
+ if(start<0)start=0;
+
+ const hours=$("hours");
+ hours.innerHTML="";
+ for(let i=start;i<Math.min(start+8,times.length);i++){
+  const [ic]=weatherInfo(codes[i]);
+  const raining=rain[i]>=0.1;
+  const time=times[i].slice(11,16);
+  const item=document.createElement("div");
+  item.className="hour"+(raining?" rain":"");
+  item.innerHTML=
+   '<div class="hour-time">'+time+'</div>'+
+   '<div class="hour-icon">'+(raining?"🌧️":ic)+'</div>'+
+   '<div class="hour-temp">'+Math.round(temps[i])+'°</div>';
+  hours.appendChild(item);
+ }
+
+ const rainHours=[];
+ for(let i=start;i<times.length;i++){
+  if(rain[i]>=0.1)rainHours.push(times[i].slice(11,16));
+ }
+ if(rainHours.length){
+  $("rain").textContent="Да";
+  $("rainResult").textContent="Сегодня ожидается дождь";
+  $("rainTime").textContent="Ожидается: "+rainHours.slice(0,5).join(", ");
+ }else{
+  $("rain").textContent="Нет";
+  $("rainResult").textContent="Дождя не ожидается";
+  $("rainTime").textContent="В прогнозируемые часы осадки не обнаружены";
+ }
+}
+
+loadCity();
+</script>
+</body>
+</html>
