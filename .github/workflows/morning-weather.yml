@@ -16,7 +16,7 @@ concurrency:
 jobs:
   send-forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check required secrets
         env:
@@ -59,7 +59,10 @@ jobs:
           def safe_text(value):
               return html.escape(str(value or ""))
 
-          supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
+          # Accept either the project root URL or a Data API URL ending in /rest/v1.
+          supabase_url = os.environ["SUPABASE_URL"].strip().rstrip("/")
+          if supabase_url.endswith("/rest/v1"):
+              supabase_url = supabase_url[:-len("/rest/v1")]
           supabase_key = os.environ["SUPABASE_ANON_KEY"]
           bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
@@ -68,35 +71,42 @@ jobs:
               "apikey": supabase_key,
               "Authorization": f"Bearer {supabase_key}",
               "Accept": "application/json",
+              "Accept-Profile": "public",
           }
 
+          # This table has only: id, city, updated_at, timezone.
           try:
               settings_response = requests.get(
                   f"{supabase_url}/rest/v1/weather_settings",
                   headers=headers,
                   params={
-                      "select": "city,latitude,longitude,timezone",
+                      "select": "city,timezone",
                       "id": "eq.1",
                       "limit": "1",
                   },
                   timeout=20,
               )
-              settings_response.raise_for_status()
+              if not settings_response.ok:
+                  body = settings_response.text[:700].replace("\n", " ")
+                  fail(
+                      "Supabase settings request failed "
+                      f"(HTTP {settings_response.status_code}). "
+                      f"Response: {body}. Check that SUPABASE_URL is the project "
+                      "root URL (not a dashboard URL), and that public.weather_settings "
+                      "is exposed in the Data API."
+                  )
               rows = settings_response.json()
-          except Exception as exc:
-              fail(f"Could not read Supabase weather settings: {exc}")
+          except requests.RequestException as exc:
+              fail(f"Could not connect to Supabase: {exc}")
+          except ValueError:
+              fail("Supabase returned a response that was not valid JSON.")
 
           if not rows:
               fail("No row with id=1 found in public.weather_settings.")
 
           settings = rows[0]
-          city = settings.get("city") or "Ваш город"
-          latitude = settings.get("latitude")
-          longitude = settings.get("longitude")
-          timezone = settings.get("timezone") or "Europe/Moscow"
-
-          if latitude is None or longitude is None:
-              fail("Latitude or longitude is missing in weather_settings.")
+          city = (settings.get("city") or "Москва").strip()
+          timezone = (settings.get("timezone") or "Europe/Moscow").strip()
 
           try:
               ZoneInfo(timezone)
@@ -104,7 +114,29 @@ jobs:
               print(f"Invalid timezone {timezone}; using Europe/Moscow.")
               timezone = "Europe/Moscow"
 
-          weather_url = "https://api.open-meteo.com/v1/forecast"
+          # Resolve city coordinates automatically; no latitude/longitude columns needed.
+          try:
+              geo_response = requests.get(
+                  "https://geocoding-api.open-meteo.com/v1/search",
+                  params={
+                      "name": city,
+                      "count": 1,
+                      "language": "ru",
+                      "format": "json",
+                  },
+                  timeout=20,
+              )
+              geo_response.raise_for_status()
+              geo_results = geo_response.json().get("results") or []
+          except Exception as exc:
+              fail(f"Could not find coordinates for city '{city}': {exc}")
+
+          if not geo_results:
+              fail(f"City '{city}' was not found by Open-Meteo geocoding.")
+
+          latitude = geo_results[0]["latitude"]
+          longitude = geo_results[0]["longitude"]
+
           weather_params = {
               "latitude": latitude,
               "longitude": longitude,
@@ -122,7 +154,9 @@ jobs:
 
           try:
               weather_response = requests.get(
-                  weather_url, params=weather_params, timeout=20
+                  "https://api.open-meteo.com/v1/forecast",
+                  params=weather_params,
+                  timeout=20,
               )
               weather_response.raise_for_status()
               weather = weather_response.json()
@@ -178,22 +212,14 @@ jobs:
           humidity = number(current.get("relative_humidity_2m"), "%")
           wind = number(current.get("wind_speed_10m"), " км/ч")
           rain = number(current.get("precipitation"), " мм")
-
-          high = "—"
-          low = "—"
-          rain_chance = "—"
-          if daily.get("temperature_2m_max"):
-              high = number(daily["temperature_2m_max"][0], "°C")
-          if daily.get("temperature_2m_min"):
-              low = number(daily["temperature_2m_min"][0], "°C")
-          if daily.get("precipitation_probability_max"):
-              rain_chance = number(
-                  daily["precipitation_probability_max"][0], "%"
-              )
+          high = number((daily.get("temperature_2m_max") or [None])[0], "°C")
+          low = number((daily.get("temperature_2m_min") or [None])[0], "°C")
+          rain_chance = number(
+              (daily.get("precipitation_probability_max") or [None])[0], "%"
+          )
 
           now = datetime.now(ZoneInfo(timezone))
           date_label = now.strftime("%d.%m.%Y")
-          weekday = now.strftime("%A")
           weekday_ru = {
               "Monday": "Понедельник",
               "Tuesday": "Вторник",
@@ -202,7 +228,7 @@ jobs:
               "Friday": "Пятница",
               "Saturday": "Суббота",
               "Sunday": "Воскресенье",
-          }.get(weekday, weekday)
+          }.get(now.strftime("%A"), now.strftime("%A"))
 
           message = (
               "☁️ <b>ALFA WEATHER</b>\n"
@@ -220,10 +246,9 @@ jobs:
               "<i>Хорошего дня! Прогноз: Open-Meteo</i>"
           )
 
-          telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
           try:
               telegram_response = requests.post(
-                  telegram_url,
+                  f"https://api.telegram.org/bot{bot_token}/sendMessage",
                   json={
                       "chat_id": chat_id,
                       "text": message,
@@ -233,12 +258,12 @@ jobs:
                   timeout=20,
               )
               telegram_response.raise_for_status()
-              result = telegram_response.json()
+              telegram_result = telegram_response.json()
           except Exception as exc:
               fail(f"Telegram request failed: {exc}")
 
-          if not result.get("ok"):
-              fail(f"Telegram API returned an error: {result}")
+          if not telegram_result.get("ok"):
+              fail(f"Telegram API returned an error: {telegram_result}")
 
           print("Прогноз успешно отправлен в Telegram.")
           print(f"Город: {city}")
