@@ -21,12 +21,12 @@ jobs:
       - name: Check required secrets
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -e
-          for name in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID SUPABASE_URL SUPABASE_ANON_KEY; do
+          for name in TELEGRAM_BOT_TOKEN SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: $name"
               exit 1
@@ -37,12 +37,13 @@ jobs:
       - name: Install Python dependency
         run: python -m pip install --disable-pip-version-check requests
 
-      - name: Build and send weather forecast
+      - name: Build and send weather forecast to subscribers
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python <<'PY'
           import os
@@ -57,16 +58,11 @@ jobs:
               print(f"::error::{message}")
               sys.exit(1)
 
-          def safe_text(value):
-              return html.escape(str(value or ""))
-
           def get_with_retries(url, *, params=None, headers=None, timeout=(15, 60), label="request"):
               last_error = None
               for attempt in range(1, 4):
                   try:
-                      response = requests.get(
-                          url, params=params, headers=headers, timeout=timeout
-                      )
+                      response = requests.get(url, params=params, headers=headers, timeout=timeout)
                       response.raise_for_status()
                       return response
                   except requests.RequestException as exc:
@@ -79,13 +75,15 @@ jobs:
           supabase_url = os.environ["SUPABASE_URL"].strip().rstrip("/")
           if supabase_url.endswith("/rest/v1"):
               supabase_url = supabase_url[:-8]
-          supabase_key = os.environ["SUPABASE_ANON_KEY"]
-          bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
-          chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
-          headers = {
-              "apikey": supabase_key,
-              "Authorization": f"Bearer {supabase_key}",
+          anon_key = os.environ["SUPABASE_ANON_KEY"]
+          service_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
+          fallback_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+
+          settings_headers = {
+              "apikey": anon_key,
+              "Authorization": f"Bearer {anon_key}",
               "Accept": "application/json",
               "Accept-Profile": "public",
           }
@@ -93,19 +91,19 @@ jobs:
           try:
               settings_response = get_with_retries(
                   f"{supabase_url}/rest/v1/weather_settings",
-                  headers=headers,
+                  headers=settings_headers,
                   params={"select": "city,timezone", "id": "eq.1", "limit": "1"},
                   timeout=(15, 30),
                   label="Supabase settings request",
               )
-              rows = settings_response.json()
+              settings_rows = settings_response.json()
           except Exception as exc:
               fail(f"Could not read Supabase weather settings: {exc}")
 
-          if not rows:
+          if not settings_rows:
               fail("No row with id=1 found in public.weather_settings.")
 
-          settings = rows[0]
+          settings = settings_rows[0]
           city = settings.get("city") or "Москва"
           timezone = settings.get("timezone") or "Europe/Moscow"
 
@@ -115,7 +113,47 @@ jobs:
               print(f"Invalid timezone {timezone}; using Europe/Moscow.")
               timezone = "Europe/Moscow"
 
-          # Find coordinates from the city name. Retry transient network timeouts.
+          # Read only active subscribers. The service-role key stays in GitHub Secrets.
+          subscriber_headers = {
+              "apikey": service_key,
+              "Authorization": f"Bearer {service_key}",
+              "Accept": "application/json",
+              "Accept-Profile": "public",
+          }
+
+          try:
+              subscribers_response = get_with_retries(
+                  f"{supabase_url}/rest/v1/telegram_subscribers",
+                  headers=subscriber_headers,
+                  params={
+                      "select": "chat_id",
+                      "is_active": "eq.true",
+                      "order": "created_at.asc",
+                  },
+                  timeout=(15, 30),
+                  label="Supabase subscribers request",
+              )
+              subscribers = subscribers_response.json()
+          except Exception as exc:
+              fail(f"Could not read Telegram subscribers: {exc}")
+
+          chat_ids = []
+          seen = set()
+          for subscriber in subscribers:
+              value = str(subscriber.get("chat_id", "")).strip()
+              if value and value not in seen:
+                  chat_ids.append(value)
+                  seen.add(value)
+
+          # Keep the old single-chat delivery as a fallback if no one has subscribed yet.
+          if not chat_ids and fallback_chat_id:
+              print("No active subscribers found; using TELEGRAM_CHAT_ID fallback.")
+              chat_ids = [fallback_chat_id]
+
+          if not chat_ids:
+              print("No active subscribers. Nothing to send.")
+              sys.exit(0)
+
           try:
               geocode_response = get_with_retries(
                   "https://geocoding-api.open-meteo.com/v1/search",
@@ -173,34 +211,15 @@ jobs:
                   return "—"
 
           descriptions = {
-              0: "Ясно",
-              1: "Преимущественно ясно",
-              2: "Переменная облачность",
-              3: "Пасмурно",
-              45: "Туман",
-              48: "Изморозь",
-              51: "Лёгкая морось",
-              53: "Морось",
-              55: "Сильная морось",
-              56: "Ледяная морось",
-              57: "Сильная ледяная морось",
-              61: "Небольшой дождь",
-              63: "Дождь",
-              65: "Сильный дождь",
-              66: "Ледяной дождь",
-              67: "Сильный ледяной дождь",
-              71: "Небольшой снег",
-              73: "Снег",
-              75: "Сильный снег",
-              77: "Снежные зёрна",
-              80: "Кратковременный дождь",
-              81: "Ливень",
-              82: "Сильный ливень",
-              85: "Снегопад",
-              86: "Сильный снегопад",
-              95: "Гроза",
-              96: "Гроза с небольшим градом",
-              99: "Гроза с сильным градом",
+              0: "Ясно", 1: "Преимущественно ясно", 2: "Переменная облачность",
+              3: "Пасмурно", 45: "Туман", 48: "Изморозь", 51: "Лёгкая морось",
+              53: "Морось", 55: "Сильная морось", 56: "Ледяная морось",
+              57: "Сильная ледяная морось", 61: "Небольшой дождь", 63: "Дождь",
+              65: "Сильный дождь", 66: "Ледяной дождь", 67: "Сильный ледяной дождь",
+              71: "Небольшой снег", 73: "Снег", 75: "Сильный снег", 77: "Снежные зёрна",
+              80: "Кратковременный дождь", 81: "Ливень", 82: "Сильный ливень",
+              85: "Снегопад", 86: "Сильный снегопад", 95: "Гроза",
+              96: "Гроза с небольшим градом", 99: "Гроза с сильным градом",
           }
 
           code = current.get("weather_code")
@@ -210,36 +229,25 @@ jobs:
           humidity = number(current.get("relative_humidity_2m"), "%")
           wind = number(current.get("wind_speed_10m"), " км/ч")
           rain = number(current.get("precipitation"), " мм")
-
-          high = "—"
-          low = "—"
-          rain_chance = "—"
-          if daily.get("temperature_2m_max"):
-              high = number(daily["temperature_2m_max"][0], "°C")
-          if daily.get("temperature_2m_min"):
-              low = number(daily["temperature_2m_min"][0], "°C")
-          if daily.get("precipitation_probability_max"):
-              rain_chance = number(daily["precipitation_probability_max"][0], "%")
+          high = number((daily.get("temperature_2m_max") or [None])[0], "°C")
+          low = number((daily.get("temperature_2m_min") or [None])[0], "°C")
+          rain_chance = number((daily.get("precipitation_probability_max") or [None])[0], "%")
 
           now = datetime.now(ZoneInfo(timezone))
           date_label = now.strftime("%d.%m.%Y")
           weekday_ru = {
-              "Monday": "Понедельник",
-              "Tuesday": "Вторник",
-              "Wednesday": "Среда",
-              "Thursday": "Четверг",
-              "Friday": "Пятница",
-              "Saturday": "Суббота",
+              "Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда",
+              "Thursday": "Четверг", "Friday": "Пятница", "Saturday": "Суббота",
               "Sunday": "Воскресенье",
           }.get(now.strftime("%A"), now.strftime("%A"))
 
           message = (
               "☁️ <b>ALFA WEATHER</b>\n"
-              f"📍 <b>{safe_text(resolved_city)}</b>\n"
+              f"📍 <b>{html.escape(str(resolved_city))}</b>\n"
               f"📅 {weekday_ru}, {date_label}\n\n"
               f"🌡 Сейчас: <b>{temperature}</b>\n"
               f"🤔 Ощущается как: {feels_like}\n"
-              f"🌤 {safe_text(description)}\n\n"
+              f"🌤 {html.escape(str(description))}\n\n"
               f"⬆️ Максимум: {high}\n"
               f"⬇️ Минимум: {low}\n"
               f"🌧 Вероятность осадков: {rain_chance}\n"
@@ -250,25 +258,32 @@ jobs:
           )
 
           telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-          try:
-              telegram_response = requests.post(
-                  telegram_url,
-                  json={
-                      "chat_id": chat_id,
-                      "text": message,
-                      "parse_mode": "HTML",
-                      "disable_web_page_preview": True,
-                  },
-                  timeout=(15, 45),
-              )
-              telegram_response.raise_for_status()
-              result = telegram_response.json()
-          except Exception as exc:
-              fail(f"Telegram request failed: {exc}")
+          sent = 0
+          failed = 0
 
-          if not result.get("ok"):
-              fail(f"Telegram API returned an error: {result}")
+          for chat_id in chat_ids:
+              try:
+                  response = requests.post(
+                      telegram_url,
+                      json={
+                          "chat_id": chat_id,
+                          "text": message,
+                          "parse_mode": "HTML",
+                          "disable_web_page_preview": True,
+                      },
+                      timeout=(15, 45),
+                  )
+                  response.raise_for_status()
+                  result = response.json()
+                  if not result.get("ok"):
+                      raise RuntimeError(str(result))
+                  sent += 1
+                  print(f"Forecast sent successfully to chat {chat_id}.")
+              except Exception as exc:
+                  failed += 1
+                  print(f"Could not send to chat {chat_id}: {exc}")
 
-          print("Прогноз успешно отправлен в Telegram.")
-          print(f"Город: {resolved_city}")
+          print(f"Finished. Sent: {sent}; failed: {failed}; total: {len(chat_ids)}.")
+          if sent == 0:
+              fail("Forecast was not delivered to any subscriber.")
           PY
